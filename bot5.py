@@ -269,12 +269,10 @@ async def on_interaction(interaction: discord.Interaction):
 
     user = data[user_id]
 
-    # ─── VERIFICARE INVITAȚII ────────────────────────────────
+    # ─── VERIFICARE INVITAȚII - MESAJ SIMPLU ────────────────
     if user['invites'] < REQUIRED_INVITES:
         await interaction.followup.send(
-            f'❌ **You need {REQUIRED_INVITES} invites to claim!**\n'
-            f'You currently have **{user["invites"]}/{REQUIRED_INVITES}** invites.\n\n'
-            f'📌 Invite more people to reach {REQUIRED_INVITES} invites!',
+            f'❌ You need {REQUIRED_INVITES} invites to claim!',
             ephemeral=True
         )
         return
