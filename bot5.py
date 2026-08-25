@@ -7,8 +7,8 @@ import sys
 
 # ─── CONFIGURARE ──────────────────────────────────────────────
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-ALLOWED_GUILD_ID = int(os.getenv('ALLOWED_GUILD_ID', 0))
-REQUIRED_INVITES = 12  # ⚠️ SETAT LA 12
+ALLOWED_GUILD_ID = 1464389143479058588  # ID-ul serverului tău
+REQUIRED_INVITES = 12
 
 DATA_FILE = 'data.json'
 
@@ -26,8 +26,16 @@ def is_allowed_guild(interaction: discord.Interaction):
 # ─── JSON storage for invites ──────────────────────────────
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, 'r') as f:
+                content = f.read().strip()
+                if not content:  # Dacă fișierul e gol
+                    return {}
+                return json.loads(content)
+        except json.JSONDecodeError:
+            # Dacă fișierul e corupt, creează unul nou
+            print('⚠️ data.json is corrupted, creating new one...')
+            return {}
     return {}
 
 def save_data(data):
