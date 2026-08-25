@@ -4,10 +4,34 @@ from discord.ui import Button, View
 import json
 import os
 import sys
+import threading
+import socket
+
+# ─── SERVER HEALTHCHECK (pentru Railway) ────────────────────
+def run_healthcheck_server():
+    try:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('0.0.0.0', 8080))
+        server.listen(1)
+        print('✅ Healthcheck server running on port 8080')
+        while True:
+            try:
+                client, addr = server.accept()
+                client.send(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK')
+                client.close()
+            except:
+                pass
+    except Exception as e:
+        print(f'⚠️ Healthcheck server error: {e}')
+
+# Pornește healthcheck server
+healthcheck_thread = threading.Thread(target=run_healthcheck_server, daemon=True)
+healthcheck_thread.start()
 
 # ─── CONFIGURARE ──────────────────────────────────────────────
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-ALLOWED_GUILD_ID = 1464389143479058588  # ID-ul serverului tău
+ALLOWED_GUILD_ID = 1464389143479058588
 REQUIRED_INVITES = 12
 
 DATA_FILE = 'data.json'
@@ -29,11 +53,10 @@ def load_data():
         try:
             with open(DATA_FILE, 'r') as f:
                 content = f.read().strip()
-                if not content:  # Dacă fișierul e gol
+                if not content:
                     return {}
                 return json.loads(content)
         except json.JSONDecodeError:
-            # Dacă fișierul e corupt, creează unul nou
             print('⚠️ data.json is corrupted, creating new one...')
             return {}
     return {}
@@ -53,7 +76,6 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 # ─── Command /send_pass ────────────────────────────────────
 @bot.tree.command(name='send_pass', description='Sends the Brawl Pass Plus redeem embed with button')
 async def send_pass(interaction: discord.Interaction):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -94,7 +116,6 @@ async def on_interaction(interaction: discord.Interaction):
     if interaction.data.get('custom_id') != 'redeem_pass':
         return
 
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -109,7 +130,6 @@ async def on_interaction(interaction: discord.Interaction):
 
     user = data[user_id]
 
-    # Verifică dacă utilizatorul are suficiente invitații (12)
     if user['invites'] < REQUIRED_INVITES:
         await interaction.followup.send(
             f'❌ You need {REQUIRED_INVITES - user["invites"]} more invites. '
@@ -118,8 +138,6 @@ async def on_interaction(interaction: discord.Interaction):
         )
         return
 
-    # ─── EDITEAZĂ AICI ──────────────────────────────────────
-    # Înlocuiește codul Brawl Pass Plus cu cel real
     try:
         await interaction.user.send(
             "🎫 **BRAWL PASS PLUS REDEEM** 🎫\n\n"
@@ -139,7 +157,6 @@ async def on_interaction(interaction: discord.Interaction):
         await interaction.followup.send('⚠️ Cannot send DM. Please enable DMs from server members.', ephemeral=True)
         return
 
-    # Resetează invitațiile la 0 și crește numărul de claim-uri
     user['invites'] = 0
     user['total_claims'] = user.get('total_claims', 0) + 1
     save_data(data)
@@ -151,10 +168,9 @@ async def on_interaction(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# ─── Admin command: manually add invites ───────────────────
+# ─── Admin commands ──────────────────────────────────────────
 @bot.tree.command(name='add_invites', description='[Admin] Add invites to a user')
 async def add_invites(interaction: discord.Interaction, member: discord.Member, count: int):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -175,26 +191,8 @@ async def add_invites(interaction: discord.Interaction, member: discord.Member, 
         ephemeral=True
     )
 
-# ─── Admin command: reset all invites ──────────────────────
-@bot.tree.command(name='reset_all', description='[Admin] Reset all invites for all users')
-async def reset_all(interaction: discord.Interaction):
-    # Verificare server autorizat
-    if not is_allowed_guild(interaction):
-        await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
-        return
-    
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message('❌ Only administrators can use this command.', ephemeral=True)
-        return
-
-    data = {}
-    save_data(data)
-    await interaction.response.send_message('✅ All user data has been reset.', ephemeral=True)
-
-# ─── Admin command: reset user invites ─────────────────────
 @bot.tree.command(name='reset_user', description='[Admin] Reset invites for a specific user')
 async def reset_user(interaction: discord.Interaction, member: discord.Member):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -208,17 +206,26 @@ async def reset_user(interaction: discord.Interaction, member: discord.Member):
     if uid in data:
         data[uid]['invites'] = 0
         save_data(data)
-        await interaction.response.send_message(
-            f'✅ {member.mention}\'s invites have been reset to 0.',
-            ephemeral=True
-        )
+        await interaction.response.send_message(f'✅ {member.mention}\'s invites have been reset to 0.', ephemeral=True)
     else:
         await interaction.response.send_message(f'❌ {member.mention} has no data.', ephemeral=True)
 
-# ─── Admin command: check user invites ─────────────────────
+@bot.tree.command(name='reset_all', description='[Admin] Reset all invites for all users')
+async def reset_all(interaction: discord.Interaction):
+    if not is_allowed_guild(interaction):
+        await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message('❌ Only administrators can use this command.', ephemeral=True)
+        return
+
+    data = {}
+    save_data(data)
+    await interaction.response.send_message('✅ All user data has been reset.', ephemeral=True)
+
 @bot.tree.command(name='check_invites', description='[Admin] Check invites for a user')
 async def check_invites(interaction: discord.Interaction, member: discord.Member):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -241,10 +248,8 @@ async def check_invites(interaction: discord.Interaction, member: discord.Member
     else:
         await interaction.response.send_message(f'❌ {member.mention} has no data.', ephemeral=True)
 
-# ─── Admin command: view all data ──────────────────────────
 @bot.tree.command(name='view_data', description='[Admin] View all user data')
 async def view_data(interaction: discord.Interaction):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -265,9 +270,7 @@ async def view_data(interaction: discord.Interaction):
             name = user.name
         except:
             name = user_id
-        
         message += f"{name}: {user_data['invites']}/{REQUIRED_INVITES} invites, Claims: {user_data.get('total_claims', 0)}\n"
-    
     message += "```"
     
     if len(message) > 2000:
@@ -282,10 +285,8 @@ async def view_data(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(message, ephemeral=True)
 
-# ─── Admin command: set required invites ───────────────────
 @bot.tree.command(name='set_required', description='[Admin] Change the required invites amount')
 async def set_required(interaction: discord.Interaction, amount: int):
-    # Verificare server autorizat
     if not is_allowed_guild(interaction):
         await interaction.response.send_message('❌ This bot can only be used on the official server.', ephemeral=True)
         return
@@ -296,10 +297,7 @@ async def set_required(interaction: discord.Interaction, amount: int):
 
     global REQUIRED_INVITES
     REQUIRED_INVITES = amount
-    await interaction.response.send_message(
-        f'✅ Required invites set to **{amount}**!',
-        ephemeral=True
-    )
+    await interaction.response.send_message(f'✅ Required invites set to **{amount}**!', ephemeral=True)
 
 # ─── Start the bot ──────────────────────────────────────────
 @bot.event
