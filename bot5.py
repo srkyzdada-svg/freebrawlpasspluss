@@ -3,18 +3,24 @@ from discord.ext import commands
 from discord.ui import Button, View
 import json
 import os
+import sys
 
 # ─── CONFIGURARE ──────────────────────────────────────────────
-# Înlocuiește cu ID-ul serverului tău
-# Cum să obții ID-ul: Settings → Advanced → Developer Mode (ON)
-# Click dreapta pe numele serverului → Copy ID
-ALLOWED_GUILD_ID = 1464389143479058588  # ⚠️ ÎNLOCUIEȘTE CU ID-UL SERVERULUI TĂU
-REQUIRED_INVITES = 12  # Numărul de invitații necesare
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+ALLOWED_GUILD_ID = int(os.getenv('ALLOWED_GUILD_ID', 0))
+REQUIRED_INVITES = 12  # ⚠️ SETAT LA 12
 
 DATA_FILE = 'data.json'
 
+# ─── Verificare token ──────────────────────────────────────
+if not DISCORD_TOKEN:
+    print('❌ DISCORD_TOKEN is not set!')
+    sys.exit(1)
+
 # ─── Verificare server autorizat ─────────────────────────────
 def is_allowed_guild(interaction: discord.Interaction):
+    if ALLOWED_GUILD_ID == 0:
+        return True
     return interaction.guild_id == ALLOWED_GUILD_ID
 
 # ─── JSON storage for invites ──────────────────────────────
@@ -91,11 +97,11 @@ async def on_interaction(interaction: discord.Interaction):
     data = load_data()
 
     if user_id not in data:
-        data[user_id] = {'invites': 0, 'total_claims': 0}  # Eliminat 'claimed'
+        data[user_id] = {'invites': 0, 'total_claims': 0}
 
     user = data[user_id]
 
-    # Verifică dacă utilizatorul are suficiente invitații
+    # Verifică dacă utilizatorul are suficiente invitații (12)
     if user['invites'] < REQUIRED_INVITES:
         await interaction.followup.send(
             f'❌ You need {REQUIRED_INVITES - user["invites"]} more invites. '
@@ -244,10 +250,8 @@ async def view_data(interaction: discord.Interaction):
         await interaction.response.send_message('📊 No data available.', ephemeral=True)
         return
 
-    # Creează un mesaj cu toate datele
     message = f"📊 **User Data:** (Required: {REQUIRED_INVITES} invites)\n```\n"
     for user_id, user_data in data.items():
-        # Încearcă să obții numele utilizatorului
         try:
             user = await bot.fetch_user(int(user_id))
             name = user.name
@@ -258,7 +262,6 @@ async def view_data(interaction: discord.Interaction):
     
     message += "```"
     
-    # Dacă mesajul e prea lung, trimite-l într-un fișier
     if len(message) > 2000:
         with open('data_export.txt', 'w') as f:
             f.write(message)
@@ -294,23 +297,31 @@ async def set_required(interaction: discord.Interaction, amount: int):
 @bot.event
 async def on_ready():
     print(f'🤖 Logged in as {bot.user}')
+    print(f'✅ Required invites: {REQUIRED_INVITES}')
+    print(f'✅ Server restriction: {"Enabled" if ALLOWED_GUILD_ID != 0 else "Disabled"}')
     
-    # Verifică dacă botul e pe serverul corect
-    guild = bot.get_guild(ALLOWED_GUILD_ID)
-    if not guild:
-        print(f'⚠️ Bot is NOT on the server with ID {ALLOWED_GUILD_ID}!')
-        print('⚠️ The bot will NOT work on any server!')
-        print('⚠️ Check the server ID and make sure the bot is invited to the correct server.')
-    else:
-        print(f'✅ Bot is on server: {guild.name} (ID: {guild.id})')
-        print(f'✅ Members: {guild.member_count}')
-        print(f'✅ Required invites: {REQUIRED_INVITES}')
+    if ALLOWED_GUILD_ID != 0:
+        guild = bot.get_guild(ALLOWED_GUILD_ID)
+        if not guild:
+            print(f'⚠️ Bot is NOT on the server with ID {ALLOWED_GUILD_ID}!')
+        else:
+            print(f'✅ Bot is on server: {guild.name} (ID: {guild.id})')
+            print(f'✅ Members: {guild.member_count}')
     
-    await bot.tree.sync()
-    print('✅ Commands synced')
+    try:
+        await bot.tree.sync()
+        print('✅ Commands synced')
+    except Exception as e:
+        print(f'❌ Failed to sync commands: {e}')
 
 if __name__ == '__main__':
-    token = os.getenv('DISCORD_TOKEN')
-    if not token:
-        raise ValueError('❌ DISCORD_TOKEN is not set!')
-    bot.run(token)
+    try:
+        bot.run(DISCORD_TOKEN)
+    except discord.errors.PrivilegedIntentsRequired:
+        print('❌ Privileged Intents are not enabled!')
+        print('📌 Go to: https://discord.com/developers/applications')
+        print('📌 Select your app → Bot → Enable Server Members Intent and Message Content Intent')
+        sys.exit(1)
+    except Exception as e:
+        print(f'❌ Error: {e}')
+        sys.exit(1)
