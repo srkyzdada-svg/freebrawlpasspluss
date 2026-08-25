@@ -8,7 +8,7 @@ import os
 # Înlocuiește cu ID-ul serverului tău
 # Cum să obții ID-ul: Settings → Advanced → Developer Mode (ON)
 # Click dreapta pe numele serverului → Copy ID
-ALLOWED_GUILD_ID = 123456789012345678  # ⚠️ ÎNLOCUIEȘTE CU ID-UL SERVERULUI TĂU
+ALLOWED_GUILD_ID = 1464389143479058588  # ⚠️ ÎNLOCUIEȘTE CU ID-UL SERVERULUI TĂU
 REQUIRED_INVITES = 12  # Numărul de invitații necesare
 
 DATA_FILE = 'data.json'
