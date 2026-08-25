@@ -67,22 +67,28 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='/', intents=intents)
 
-# ─── Urmărește invitațiile ──────────────────────────────────
+# ─── Salvează invitațiile la pornire ─────────────────────────
 @bot.event
 async def on_ready():
     print(f'🤖 Logged in as {bot.user}')
     
-    # Salvează invitațiile inițiale
+    # Salvează toate invitațiile pentru server
     for guild in bot.guilds:
         try:
             invites = await guild.invites()
+            INVITE_CACHE[guild.id] = {}
             for invite in invites:
-                INVITE_CACHE[invite.code] = invite.uses
-        except:
-            pass
+                INVITE_CACHE[guild.id][invite.code] = {
+                    'uses': invite.uses,
+                    'inviter_id': str(invite.inviter.id),
+                    'max_age': invite.max_age,
+                    'max_uses': invite.max_uses
+                }
+            print(f'✅ Tracked {len(invites)} invites on {guild.name}')
+        except Exception as e:
+            print(f'⚠️ Could not fetch invites: {e}')
     
     print(f'✅ Required invites: {REQUIRED_INVITES}')
-    print(f'✅ Server restriction: {"Enabled" if ALLOWED_GUILD_ID != 0 else "Disabled"}')
     
     if ALLOWED_GUILD_ID != 0:
         guild = bot.get_guild(ALLOWED_GUILD_ID)
@@ -98,39 +104,113 @@ async def on_ready():
     except Exception as e:
         print(f'❌ Failed to sync commands: {e}')
 
-# ─── Detectează când cineva intră pe server ────────────────
+# ─── CÂND SE CREEAZĂ O INVITAȚIE ────────────────────────────
+@bot.event
+async def on_invite_create(invite):
+    """Când se creează o invitație nouă, o adaugă în cache"""
+    try:
+        if invite.guild.id not in INVITE_CACHE:
+            INVITE_CACHE[invite.guild.id] = {}
+        
+        INVITE_CACHE[invite.guild.id][invite.code] = {
+            'uses': invite.uses,
+            'inviter_id': str(invite.inviter.id),
+            'max_age': invite.max_age,
+            'max_uses': invite.max_uses
+        }
+        print(f'✅ New invite created: {invite.code} by {invite.inviter.name}')
+    except Exception as e:
+        print(f'⚠️ Error on_invite_create: {e}')
+
+# ─── CÂND SE ȘTERGE O INVITAȚIE ─────────────────────────────
+@bot.event
+async def on_invite_delete(invite):
+    """Când se șterge o invitație, o elimină din cache"""
+    try:
+        if invite.guild.id in INVITE_CACHE and invite.code in INVITE_CACHE[invite.guild.id]:
+            del INVITE_CACHE[invite.guild.id][invite.code]
+            print(f'✅ Invite deleted: {invite.code}')
+    except Exception as e:
+        print(f'⚠️ Error on_invite_delete: {e}')
+
+# ─── DETECTEAZĂ CINE A INVITAT ─────────────────────────────
 @bot.event
 async def on_member_join(member):
     """Când un membru nou intră, verifică cine l-a invitat"""
     try:
-        # Verifică dacă botul e pe serverul corect
+        # Verifică dacă e serverul corect
         if member.guild.id != ALLOWED_GUILD_ID:
             return
         
-        # Obține invitațiile actuale
-        invites = await member.guild.invites()
+        # Așteaptă puțin să se actualizeze invitațiile
+        await discord.utils.sleep(1.5)
         
-        # Găsește invitația care a fost folosită
-        for invite in invites:
-            old_uses = INVITE_CACHE.get(invite.code, 0)
-            if invite.uses > old_uses:
-                # Acest invitație a fost folosită
-                inviter_id = str(invite.inviter.id)
-                
-                # Actualizează cache-ul
-                INVITE_CACHE[invite.code] = invite.uses
-                
-                # Încarcă datele
-                data = load_data()
-                if inviter_id not in data:
-                    data[inviter_id] = {'invites': 0, 'total_claims': 0}
-                
-                # Adaugă o invitație
-                data[inviter_id]['invites'] += 1
-                save_data(data)
-                
-                print(f'✅ {invite.inviter.name} invited {member.name} (Total: {data[inviter_id]["invites"]})')
-                break
+        # Obține invitațiile actuale
+        current_invites = await member.guild.invites()
+        old_invites = INVITE_CACHE.get(member.guild.id, {})
+        
+        found_inviter_id = None
+        found_invite_code = None
+        
+        # Metoda 1: Compară direct utilizările
+        for invite in current_invites:
+            old_data = old_invites.get(invite.code)
+            if old_data:
+                old_uses = old_data.get('uses', 0)
+                if invite.uses > old_uses:
+                    found_inviter_id = old_data.get('inviter_id')
+                    found_invite_code = invite.code
+                    print(f'✅ Found invite by direct compare: {invite.code}')
+                    break
+        
+        # Metoda 2: Dacă nu s-a găsit, caută invitația cu cea mai mare creștere
+        if not found_inviter_id and current_invites:
+            max_diff = 0
+            for invite in current_invites:
+                old_data = old_invites.get(invite.code)
+                if old_data:
+                    diff = invite.uses - old_data.get('uses', 0)
+                    if diff > max_diff:
+                        max_diff = diff
+                        found_inviter_id = old_data.get('inviter_id')
+                        found_invite_code = invite.code
+            
+            if found_inviter_id:
+                print(f'✅ Found invite by max diff: {found_invite_code} (diff: {max_diff})')
+        
+        # Dacă s-a găsit cine a invitat
+        if found_inviter_id:
+            # Încarcă datele
+            data = load_data()
+            if found_inviter_id not in data:
+                data[found_inviter_id] = {'invites': 0, 'total_claims': 0}
+            
+            # Adaugă o invitație
+            data[found_inviter_id]['invites'] += 1
+            save_data(data)
+            
+            # Log
+            try:
+                inviter = await bot.fetch_user(int(found_inviter_id))
+                print(f'✅ {inviter.name} invited {member.name} (Total: {data[found_inviter_id]["invites"]})')
+            except:
+                print(f'✅ User {found_inviter_id} invited {member.name}')
+        else:
+            print(f'⚠️ Could not determine who invited {member.name}')
+            print(f'   Current invites: {len(current_invites)}')
+            print(f'   Cached invites: {len(old_invites)}')
+        
+        # Actualizează cache-ul pentru data viitoare
+        new_cache = {}
+        for invite in current_invites:
+            new_cache[invite.code] = {
+                'uses': invite.uses,
+                'inviter_id': str(invite.inviter.id),
+                'max_age': invite.max_age,
+                'max_uses': invite.max_uses
+            }
+        INVITE_CACHE[member.guild.id] = new_cache
+            
     except Exception as e:
         print(f'⚠️ Error tracking invite: {e}')
 
@@ -229,7 +309,8 @@ async def on_interaction(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# ─── Admin command: add invites ────────────────────────────
+# ─── Admin commands ──────────────────────────────────────────
+
 @bot.tree.command(name='add_invites', description='[Admin] Add invites to a user')
 async def add_invites(interaction: discord.Interaction, member: discord.Member, count: int):
     if interaction.guild_id != ALLOWED_GUILD_ID:
@@ -252,7 +333,6 @@ async def add_invites(interaction: discord.Interaction, member: discord.Member, 
         ephemeral=True
     )
 
-# ─── Admin command: reset user ─────────────────────────────
 @bot.tree.command(name='reset_user', description='[Admin] Reset invites for a specific user')
 async def reset_user(interaction: discord.Interaction, member: discord.Member):
     if interaction.guild_id != ALLOWED_GUILD_ID:
@@ -272,7 +352,6 @@ async def reset_user(interaction: discord.Interaction, member: discord.Member):
     else:
         await interaction.response.send_message(f'❌ {member.mention} has no data.', ephemeral=True)
 
-# ─── Admin command: reset all ──────────────────────────────
 @bot.tree.command(name='reset_all', description='[Admin] Reset all invites for all users')
 async def reset_all(interaction: discord.Interaction):
     if interaction.guild_id != ALLOWED_GUILD_ID:
@@ -287,7 +366,6 @@ async def reset_all(interaction: discord.Interaction):
     save_data(data)
     await interaction.response.send_message('✅ All user data has been reset.', ephemeral=True)
 
-# ─── Admin command: check invites ──────────────────────────
 @bot.tree.command(name='check_invites', description='[Admin] Check invites for a user')
 async def check_invites(interaction: discord.Interaction, member: discord.Member):
     if interaction.guild_id != ALLOWED_GUILD_ID:
@@ -312,7 +390,6 @@ async def check_invites(interaction: discord.Interaction, member: discord.Member
     else:
         await interaction.response.send_message(f'❌ {member.mention} has no data.', ephemeral=True)
 
-# ─── Admin command: view data ──────────────────────────────
 @bot.tree.command(name='view_data', description='[Admin] View all user data')
 async def view_data(interaction: discord.Interaction):
     if interaction.guild_id != ALLOWED_GUILD_ID:
@@ -350,7 +427,6 @@ async def view_data(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(message, ephemeral=True)
 
-# ─── Admin command: set required ───────────────────────────
 @bot.tree.command(name='set_required', description='[Admin] Change the required invites amount')
 async def set_required(interaction: discord.Interaction, amount: int):
     if interaction.guild_id != ALLOWED_GUILD_ID:
