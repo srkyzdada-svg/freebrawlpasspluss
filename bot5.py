@@ -67,7 +67,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='/', intents=intents)
 
-# ─── Salvează invitațiile la pornire ─────────────────────────
+# ─── Urmărește invitațiile la pornire ───────────────────────
 @bot.event
 async def on_ready():
     print(f'🤖 Logged in as {bot.user}')
@@ -197,8 +197,6 @@ async def on_member_join(member):
                 print(f'✅ User {found_inviter_id} invited {member.name}')
         else:
             print(f'⚠️ Could not determine who invited {member.name}')
-            print(f'   Current invites: {len(current_invites)}')
-            print(f'   Cached invites: {len(old_invites)}')
         
         # Actualizează cache-ul pentru data viitoare
         new_cache = {}
@@ -271,14 +269,17 @@ async def on_interaction(interaction: discord.Interaction):
 
     user = data[user_id]
 
+    # ─── VERIFICARE INVITAȚII ────────────────────────────────
     if user['invites'] < REQUIRED_INVITES:
         await interaction.followup.send(
-            f'❌ You need {REQUIRED_INVITES - user["invites"]} more invites. '
-            f'You have {user["invites"]}/{REQUIRED_INVITES}.',
+            f'❌ **You need {REQUIRED_INVITES} invites to claim!**\n'
+            f'You currently have **{user["invites"]}/{REQUIRED_INVITES}** invites.\n\n'
+            f'📌 Invite more people to reach {REQUIRED_INVITES} invites!',
             ephemeral=True
         )
         return
 
+    # ─── TRIMITE CODUL ÎN DM ──────────────────────────────────
     try:
         await interaction.user.send(
             "🎫 **BRAWL PASS PLUS REDEEM** 🎫\n\n"
