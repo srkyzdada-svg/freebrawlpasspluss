@@ -143,7 +143,7 @@ async def on_interaction(interaction: discord.Interaction):
             "🎫 **BRAWL PASS PLUS REDEEM** 🎫\n\n"
             "✅ **Your Brawl Pass Plus code:**\n"
             "```\n"
-            "BRAWL-PASS-PLUS-CODE-HERE\n"
+            "https://link.brawlstars.com/en/voucher/51867338-a853-4326-a7c9-3224bdfacff6/\n"
             "```\n\n"
             "📌 **How to redeem:**\n"
             "1. Open Brawl Stars\n"
